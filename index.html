@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Daily Puzzles</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧩</text></svg>">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="title">
+    <div class="tiles" aria-label="Daily">
+      <span class="tile a">D</span><span class="tile">A</span><span class="tile w">I</span><span class="tile">L</span><span class="tile g">Y</span>
+    </div>
+    <div class="tiles" aria-label="Puzzles">
+      <span class="tile">P</span><span class="tile g">U</span><span class="tile">Z</span><span class="tile">Z</span><span class="tile w">L</span><span class="tile">E</span><span class="tile a">S</span>
+    </div>
+  </header>
+  <p class="subtitle">All your daily guessing games in one place. Pick one, or let fate decide.</p>
+
+  <div class="toolbar">
+    <input id="search" class="search" type="search" placeholder="Search games…  (press / to focus)" autocomplete="off">
+    <label class="toggle"><input type="checkbox" id="hidePlayed"> Hide played</label>
+    <label class="toggle"><input type="checkbox" id="favOnly"> Favorites only</label>
+    <button class="btn" id="addBtn">+ Add game</button>
+    <a class="btn primary" id="randomBtn" href="random.html" title="Shortcut: R">🎲 Random game</a>
+  </div>
+
+  <div class="chips" id="chips"></div>
+
+  <div class="progress">
+    <span id="progressText"></span>
+    <div class="bar"><span id="progressBar"></span></div>
+    <button class="linkish" id="resetBtn">reset today</button>
+  </div>
+
+  <main id="list"></main>
+
+  <footer class="footer">
+    <span>Click a card to open it in a new tab; it gets marked as played for today.</span>
+    <button class="linkish" id="restoreBtn" hidden>restore removed games</button>
+  </footer>
+</div>
+
+<dialog id="addDialog">
+  <form method="dialog" id="addForm">
+    <h2>Add a game</h2>
+    <label class="field">Name <input name="name" required maxlength="40" placeholder="e.g. Hexcodle"></label>
+    <label class="field">URL <input name="url" type="url" required placeholder="https://…"></label>
+    <div class="row">
+      <label class="field">Category <select name="cat" id="catSelect"></select></label>
+      <label class="field" style="flex:0 0 90px">Icon <input name="icon" maxlength="4" placeholder="🎲"></label>
+    </div>
+    <label class="field">Short description <input name="desc" maxlength="80" placeholder="Optional"></label>
+    <div class="dialog-actions">
+      <button class="btn ghost" value="cancel" formnovalidate>Cancel</button>
+      <button class="btn primary" value="save">Add</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="games.js"></script>
+<script src="store.js"></script>
+<script>
+  const $ = sel => document.querySelector(sel);
+  const ui = { cat: "", q: "", hidePlayed: false, favOnly: false };
+
+  const prefs = JSON.parse(localStorage.getItem("daily-puzzles:ui") || "{}");
+  Object.assign(ui, { cat: prefs.cat || "", hidePlayed: !!prefs.hidePlayed, favOnly: !!prefs.favOnly });
+  $("#hidePlayed").checked = ui.hidePlayed;
+  $("#favOnly").checked = ui.favOnly;
+  const savePrefs = () => localStorage.setItem("daily-puzzles:ui",
+    JSON.stringify({ cat: ui.cat, hidePlayed: ui.hidePlayed, favOnly: ui.favOnly }));
+
+  const host = url => { try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; } };
+  const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  function cardHTML(g, s) {
+    const played = s.played.includes(g.id);
+    const fav = s.favorites.includes(g.id);
+    return `
+      <a class="card ${played ? "played" : ""}" href="${esc(g.url)}" target="_blank" rel="noopener" data-id="${esc(g.id)}">
+        <div class="icon">${played ? "✓" : esc(g.icon || "🎲")}</div>
+        <div class="body">
+          <div class="name">${esc(g.name)}<span class="done-badge">PLAYED</span></div>
+          <div class="desc">${esc(g.desc || "")}</div>
+          <div class="host">${esc(host(g.url))}</div>
+        </div>
+        <div class="card-actions">
+          <button class="icon-btn ${fav ? "fav-on" : ""}" data-act="fav" title="${fav ? "Unfavorite" : "Favorite"}">${fav ? "★" : "☆"}</button>
+          <button class="icon-btn more" data-act="played" title="${played ? "Mark as not played" : "Mark as played"}">${played ? "↺" : "✓"}</button>
+          <button class="icon-btn more" data-act="remove" title="Remove from dashboard">✕</button>
+        </div>
+      </a>`;
+  }
+
+  function renderChips(all) {
+    const cats = [...new Set([...window.CATEGORIES, ...all.map(g => g.cat)])].filter(Boolean);
+    $("#chips").innerHTML = [["", "All"], ...cats.map(c => [c, c])]
+      .map(([v, l]) => {
+        const n = v ? all.filter(g => g.cat === v).length : all.length;
+        return `<button class="chip ${ui.cat === v ? "on" : ""}" data-cat="${esc(v)}">${esc(l)} · ${n}</button>`;
+      }).join("");
+    $("#catSelect").innerHTML = cats.map(c => `<option>${esc(c)}</option>`).join("");
+  }
+
+  function render() {
+    const s = Store.get();
+    const all = Store.allGames();
+    renderChips(all);
+
+    // progress (out of the games in the current category)
+    const pool = Store.filter(all, { cat: ui.cat });
+    const done = pool.filter(g => s.played.includes(g.id)).length;
+    $("#progressText").textContent = `${done} / ${pool.length} played today${ui.cat ? ` in ${ui.cat}` : ""}`;
+    $("#progressBar").style.width = pool.length ? `${(done / pool.length) * 100}%` : "0";
+
+    const shown = Store.filter(all, { cat: ui.cat, q: ui.q, fav: ui.favOnly, unplayed: ui.hidePlayed });
+
+    // random link mirrors the current category / favorites filter
+    const p = new URLSearchParams();
+    if (ui.cat) p.set("cat", ui.cat);
+    if (ui.favOnly) p.set("fav", "1");
+    $("#randomBtn").href = "random.html" + (p.toString() ? "?" + p : "");
+
+    $("#restoreBtn").hidden = Store.hiddenGames().length === 0;
+
+    if (!shown.length) {
+      $("#list").innerHTML = `<div class="empty">${ui.hidePlayed && !ui.q ? "🎉 You've played everything here today." : "No games match."}</div>`;
+      return;
+    }
+
+    let html = "";
+    const section = (title, games) => games.length
+      ? `<div class="section-title">${esc(title)}</div><div class="grid">${games.map(g => cardHTML(g, s)).join("")}</div>` : "";
+
+    if (ui.cat || ui.favOnly || ui.q) {
+      html = section(ui.cat || (ui.favOnly ? "Favorites" : "Results"), shown);
+    } else {
+      const favs = shown.filter(g => s.favorites.includes(g.id));
+      const rest = shown.filter(g => !s.favorites.includes(g.id));
+      html += section("★ Favorites", favs);
+      const cats = [...new Set(rest.map(g => g.cat))];
+      cats.sort((a, b) => (window.CATEGORIES.indexOf(a) + 1 || 99) - (window.CATEGORIES.indexOf(b) + 1 || 99));
+      for (const c of cats) html += section(c, rest.filter(g => g.cat === c));
+    }
+    $("#list").innerHTML = html;
+  }
+
+  // ---- events ----
+  $("#list").addEventListener("click", e => {
+    const card = e.target.closest(".card");
+    if (!card) return;
+    const id = card.dataset.id;
+    const btn = e.target.closest("[data-act]");
+    if (btn) {
+      e.preventDefault();
+      const act = btn.dataset.act;
+      if (act === "fav") Store.toggleFavorite(id);
+      if (act === "played") Store.get().played.includes(id) ? Store.unmarkPlayed(id) : Store.markPlayed(id);
+      if (act === "remove") {
+        const g = Store.allGames().find(x => x.id === id);
+        if (!confirm(`Remove "${g?.name}" from the dashboard?`)) return;
+        Store.removeGame(id);
+      }
+      render();
+      return;
+    }
+    // normal click / middle click opens the site; mark as played
+    Store.markPlayed(id);
+    setTimeout(render, 50);
+  });
+  $("#list").addEventListener("auxclick", e => {
+    const card = e.target.closest(".card");
+    if (card && e.button === 1 && !e.target.closest("[data-act]")) { Store.markPlayed(card.dataset.id); setTimeout(render, 50); }
+  });
+
+  $("#chips").addEventListener("click", e => {
+    const chip = e.target.closest(".chip");
+    if (!chip) return;
+    ui.cat = chip.dataset.cat;
+    savePrefs(); render();
+  });
+  $("#search").addEventListener("input", e => { ui.q = e.target.value; render(); });
+  $("#hidePlayed").addEventListener("change", e => { ui.hidePlayed = e.target.checked; savePrefs(); render(); });
+  $("#favOnly").addEventListener("change", e => { ui.favOnly = e.target.checked; savePrefs(); render(); });
+  $("#resetBtn").addEventListener("click", () => { if (confirm("Clear today's played marks?")) { Store.resetPlayed(); render(); } });
+  $("#restoreBtn").addEventListener("click", () => { Store.restoreAll(); render(); });
+
+  $("#addBtn").addEventListener("click", () => { $("#addForm").reset(); $("#addDialog").showModal(); });
+  $("#addDialog").addEventListener("close", () => {
+    if ($("#addDialog").returnValue !== "save") return;
+    const f = new FormData($("#addForm"));
+    const name = f.get("name").trim();
+    Store.addCustom({
+      id: "custom-" + name.toLowerCase().replace(/[^a-z0-9]+/g, "-") + "-" + Date.now().toString(36),
+      name, url: f.get("url").trim(), cat: f.get("cat"),
+      icon: f.get("icon").trim() || "🎲", desc: f.get("desc").trim(),
+    });
+    render();
+  });
+
+  document.addEventListener("keydown", e => {
+    if (e.target.matches("input, textarea, select") || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key === "/") { e.preventDefault(); $("#search").focus(); }
+    if (e.key.toLowerCase() === "r") location.href = $("#randomBtn").href;
+  });
+
+  // refresh when coming back from another tab (e.g. after the random page marked something)
+  window.addEventListener("focus", render);
+  window.addEventListener("pageshow", render);
+
+  render();
+</script>
+</body>
+</html>

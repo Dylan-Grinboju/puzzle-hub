@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Random game · Daily Puzzles</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎲</text></svg>">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="random-page">
+  <div class="spinner-card">
+    <div class="label" id="label">Picking a game…</div>
+    <div class="reel" id="reel">🎲</div>
+    <div class="pick-name" id="pickName"></div>
+    <div class="pick-desc" id="pickDesc"></div>
+    <div class="countdown" id="countdown"></div>
+
+    <div class="random-actions">
+      <a class="btn primary" id="goBtn" href="#" hidden>▶ Play now</a>
+      <button class="btn" id="rerollBtn" disabled>🎲 Reroll</button>
+      <button class="btn" id="stopBtn" hidden>Stay here</button>
+      <a class="btn ghost" href="index.html">← Dashboard</a>
+    </div>
+
+    <div class="random-opts">
+      <label class="toggle">From <select id="optCat"><option value="">All categories</option></select></label>
+      <label class="toggle"><input type="checkbox" id="optFav"> Favorites only</label>
+      <label class="toggle"><input type="checkbox" id="optUnplayed"> Skip played</label>
+      <label class="toggle"><input type="checkbox" id="optAuto"> Auto-open</label>
+    </div>
+  </div>
+</div>
+
+<script src="games.js"></script>
+<script src="store.js"></script>
+<script>
+  const $ = sel => document.querySelector(sel);
+  const params = new URLSearchParams(location.search);
+  const AUTO_KEY = "daily-puzzles:auto-open";
+  const AUTO_SECONDS = 3;
+
+  const all = Store.allGames();
+  const cats = [...new Set([...window.CATEGORIES, ...all.map(g => g.cat)])];
+  $("#optCat").innerHTML += cats.map(c => `<option>${c.replace(/</g, "&lt;")}</option>`).join("");
+  $("#optCat").value = params.get("cat") || "";
+  $("#optFav").checked = params.get("fav") === "1";
+  $("#optUnplayed").checked = params.get("unplayed") !== "0";
+  $("#optAuto").checked = localStorage.getItem(AUTO_KEY) !== "0";
+
+  let pick = null, last = null, timer = null, countdownTimer = null;
+
+  function opts() {
+    return { cat: $("#optCat").value, fav: $("#optFav").checked, unplayed: $("#optUnplayed").checked };
+  }
+
+  function show(g) {
+    $("#reel").textContent = g.icon || "🎲";
+    $("#pickName").textContent = g.name;
+  }
+
+  function clearTimers() { clearTimeout(timer); clearInterval(countdownTimer); }
+
+  function spin() {
+    clearTimers();
+    const o = opts();
+    let pool = Store.filter(all, o);
+    let note = "";
+    if (!pool.length && o.unplayed) {
+      pool = Store.filter(all, { ...o, unplayed: false });
+      if (pool.length) note = "You've played all of these today. Picking one anyway.";
+    }
+
+    $("#goBtn").hidden = true; $("#stopBtn").hidden = true;
+    $("#rerollBtn").disabled = true;
+    $("#reel").classList.remove("landed");
+    $("#pickDesc").textContent = ""; $("#countdown").textContent = "";
+
+    if (!pool.length) {
+      $("#label").textContent = "Nothing to pick from";
+      $("#reel").textContent = "🤷";
+      $("#pickName").textContent = "No games match";
+      $("#pickDesc").textContent = "Try another category or turn off Favorites only.";
+      $("#rerollBtn").disabled = false;
+      return;
+    }
+
+    const choices = pool.length > 1 ? pool.filter(g => g.id !== last) : pool;
+    pick = choices[Math.floor(Math.random() * choices.length)];
+    last = pick.id;
+    $("#label").textContent = "Picking a game…";
+
+    // Reel: show random games with slowing intervals, then land on the pick.
+    const reelPool = pool.length > 1 ? pool : all;
+    let delay = 45, prev = null;
+    const step = () => {
+      if (delay > 320) return land(note);
+      let g;
+      do { g = reelPool[Math.floor(Math.random() * reelPool.length)]; } while (reelPool.length > 1 && g === prev);
+      prev = g; show(g);
+      delay *= 1.17;
+      timer = setTimeout(step, delay);
+    };
+    step();
+  }
+
+  function land(note) {
+    show(pick);
+    $("#reel").classList.add("landed");
+    $("#label").textContent = `Today's pick · ${pick.cat}`;
+    $("#pickDesc").textContent = note || pick.desc || "";
+    $("#goBtn").href = pick.url;
+    $("#goBtn").hidden = false;
+    $("#rerollBtn").disabled = false;
+    document.title = `${pick.name} · Random game`;
+
+    if ($("#optAuto").checked) {
+      let n = AUTO_SECONDS;
+      $("#stopBtn").hidden = false;
+      $("#countdown").textContent = `Opening in ${n}…`;
+      countdownTimer = setInterval(() => {
+        n--;
+        if (n <= 0) { clearInterval(countdownTimer); go(); }
+        else $("#countdown").textContent = `Opening in ${n}…`;
+      }, 1000);
+    }
+  }
+
+  function go() {
+    if (!pick) return;
+    Store.markPlayed(pick.id);
+    $("#countdown").textContent = "Opening…";
+    location.href = pick.url;
+  }
+
+  $("#goBtn").addEventListener("click", e => { e.preventDefault(); clearTimers(); go(); });
+  $("#rerollBtn").addEventListener("click", spin);
+  $("#stopBtn").addEventListener("click", () => {
+    clearInterval(countdownTimer);
+    $("#countdown").textContent = "";
+    $("#stopBtn").hidden = true;
+  });
+  for (const id of ["#optCat", "#optFav", "#optUnplayed"]) $(id).addEventListener("change", spin);
+  $("#optAuto").addEventListener("change", e => {
+    localStorage.setItem(AUTO_KEY, e.target.checked ? "1" : "0");
+    if (!e.target.checked) $("#stopBtn").click();
+  });
+  document.addEventListener("keydown", e => {
+    if (e.target.matches("select, input")) return;
+    if (e.key === " " || e.key.toLowerCase() === "r") { e.preventDefault(); if (!$("#rerollBtn").disabled) spin(); }
+    if (e.key === "Enter" && !$("#goBtn").hidden) { clearTimers(); go(); }
+    if (e.key === "Escape") $("#stopBtn").click();
+  });
+
+  // Coming back with the browser's Back button restores this page from cache; don't auto-redirect again.
+  window.addEventListener("pageshow", e => { if (e.persisted) { clearTimers(); $("#countdown").textContent = ""; $("#stopBtn").hidden = true; } });
+
+  spin();
+</script>
+</body>
+</html>
