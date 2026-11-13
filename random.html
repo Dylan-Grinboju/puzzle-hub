@@ -56,7 +56,7 @@
 
   function show(g) {
     $("#reel").textContent = g.icon || "🎲";
-    $("#pickName").textContent = g.name;
+    $("#pickName").textContent = g.name; $("#pickName").dir = "auto";
   }
 
   function clearTimers() { clearTimeout(timer); clearInterval(countdownTimer); }

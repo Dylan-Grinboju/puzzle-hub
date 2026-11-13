@@ -46,7 +46,7 @@
 <dialog id="addDialog">
   <form method="dialog" id="addForm">
     <h2>Add a game</h2>
-    <label class="field">Name <input name="name" required maxlength="40" placeholder="e.g. Hexcodle"></label>
+    <label class="field">Name <input name="name" required maxlength="40" placeholder="e.g. Wordle"></label>
     <label class="field">URL <input name="url" type="url" required placeholder="https://…"></label>
     <div class="row">
       <label class="field">Category <select name="cat" id="catSelect"></select></label>
@@ -83,8 +83,8 @@
       <a class="card ${played ? "played" : ""}" href="${esc(g.url)}" target="_blank" rel="noopener" data-id="${esc(g.id)}">
         <div class="icon">${played ? "✓" : esc(g.icon || "🎲")}</div>
         <div class="body">
-          <div class="name">${esc(g.name)}<span class="done-badge">PLAYED</span></div>
-          <div class="desc">${esc(g.desc || "")}</div>
+          <div class="name"><bdi>${esc(g.name)}</bdi><span class="done-badge">PLAYED</span></div>
+          <div class="desc" dir="auto">${esc(g.desc || "")}</div>
           <div class="host">${esc(host(g.url))}</div>
         </div>
         <div class="card-actions">
